@@ -1,7 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "bob-dev"
 version = "0.1.0"
-description = "Add your description here"
+description = "An AI developer to write code for you"
 readme = "README.md"
+authors = [{ name="Samuel Pereira dos Santos", email="samuelsantosdev@gmail.com" }]
 requires-python = ">=3.14"
 dependencies = []
+
+[project.scripts]
+bob-dev = "bob_dev.cli:main"
