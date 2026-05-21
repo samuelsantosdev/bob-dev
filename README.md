@@ -2,6 +2,8 @@
 
 **BOB Dev** is an AI-powered developer workflow CLI that bridges Jira, your codebase, and Claude Code.
 
+![BOB-Dev Banner](banner.png)
+
 Given a Jira task ID it will:
 
 1. **Fetch** the task title, description, and fix versions from Jira.
