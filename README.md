@@ -1,8 +1,8 @@
 # BOB Dev
 
-**BOB Dev** is an AI-powered developer workflow CLI that bridges Jira, your codebase, and Claude Code.
+**BOB Dev** is an AI-powered developer workflow CLI that bridges a task requirements, your codebase, and Claude Code.
 
-![BOB-Dev Banner](banner.png)
+![BOB-Dev Banner](https://github.com/samuelsantosdev/bob-dev/blob/main/assets/banner.png)
 
 Given a Jira task ID it will:
 
@@ -26,11 +26,7 @@ Given a Jira task ID it will:
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/bob-dev.git
-cd bob-dev
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -e .
+pip install bob-dev
 ```
 
 ---
@@ -43,20 +39,7 @@ Run the interactive setup wizard the first time:
 bob-dev --configure
 ```
 
-This will prompt for your API keys, Jira credentials, and Claude Code API key,
-then write them to `src/bob_dev/.env`.
-
-You can also create or edit the file manually:
-
-```
-AGENT=GROK                            # or OPENAI
-GROK_API_KEY=xai-…
-OPENAI_API_KEY=sk-…                   # only needed when AGENT=OPENAI
-JIRA_URL=https://your-org.atlassian.net
-JIRA_EMAIL=you@example.com
-JIRA_API_TOKEN=your-atlassian-token
-CLAUDE_API_KEY=sk-ant-…
-```
+This will prompt for your API keys, Jira credentials, and Claude Code API key.
 
 ---
 
@@ -89,47 +72,6 @@ src/bob_dev/
 └── constants/
     └── frameworks.py       # Known framework names used for auto-detection
 ```
-
----
-
-## How it works
-
-```
-$ bob-dev --task_id SPLY-1234 --path ../my-repo
-
-[i] Project path  : /home/user/my-repo
-[i] Jira task ID  : SPLY-1234
-[i] LLM backend   : GROK (grok-3)
-
-[1/4] Fetching Jira task SPLY-1234 …
-  >>==o>  ~.~./\.~.~.~^~.~.~./\.~.~^~.~.~  Fetching Jira task... (1.2s)
-[✓] Title         : Add pagination to the orders endpoint
-[i] Fix versions  : v2.4.0
-
-[2/4] Generating Claude Code prompt via GROK (grok-3) …
-  >>==o>  ~.~./\.~.~.~^~.~.~./\.~.~^~.~.~  Reading project docs... (0.8s)
-[i] Detected framework : Django REST Framework
-  >>==o>  ~.~./\.~.~.~^~.~.~./\.~.~^~.~.~  Generating prompt... (4.8s)
-[✓] Prompt generated.
-
-[3/4] Analysing the prompt for issues …
-  >>==o>  ~.~./\.~.~.~^~.~.~./\.~.~^~.~.~  Analysing prompt... (2.1s)
-
-── Prompt Analysis ──────────────────────────────────────────────────────
-• Ensure pagination parameters are validated server-side (max page size).
-• Add edge-case tests for empty result sets and out-of-range page numbers.
-• Consider caching the total count to avoid repeated COUNT(*) queries.
-────────────────────────────────────────────────────────────────────────
-
-Proceed and send prompt to Claude Code? [y/N]
-```
-
-If you answer **y**, the prompt is forwarded directly to the Claude Code CLI
-(`claude --dangerously-skip-permissions --print <prompt>`), which implements
-the feature in your repository.
-
-If you answer **n** (or anything other than `y`), the prompt is saved to
-`src/bob_dev/claude_prompt-<TASK_ID>.md` for manual review.
 
 ---
 
