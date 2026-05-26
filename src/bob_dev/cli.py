@@ -317,19 +317,22 @@ def _run_configure() -> None:
         jira_url   = input("JIRA_URL   (e.g. https://your-org.atlassian.net): ").strip()
         jira_email = input("JIRA_EMAIL (your Atlassian account e-mail)       : ").strip()
         jira_token = input("JIRA_API_TOKEN (Atlassian API token)              : ").strip()
+        for key, val in [
+            ("JIRA_URL",       jira_url),
+            ("JIRA_EMAIL",     jira_email),
+            ("JIRA_API_TOKEN", jira_token),
+        ]:
+            update_env_file(key, val, env_path)
     if task_manager == "GITLAB":
         # GitLab credentials.
         print("\nGitLab configuration:")
         gitlab_url   = input("GITLAB_URL   (e.g. https://gitlab.com)            : ").strip()
         gitlab_token = input("GITLAB_API_TOKEN (GitLab API token)              : ").strip()
-    for key, val in [
-        ("JIRA_URL",       jira_url),
-        ("JIRA_EMAIL",     jira_email),
-        ("JIRA_API_TOKEN", jira_token),
-        ("GITLAB_URL",     gitlab_url),
-        ("GITLAB_API_TOKEN", gitlab_token),
-    ]:
-        update_env_file(key, val, env_path)
+        for key, val in [
+            ("GITLAB_URL",     gitlab_url),
+            ("GITLAB_API_TOKEN", gitlab_token),
+        ]:
+            update_env_file(key, val, env_path)
 
     print_success(f"{task_manager} configuration saved.")
 
