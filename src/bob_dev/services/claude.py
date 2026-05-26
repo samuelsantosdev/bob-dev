@@ -7,10 +7,10 @@ Claude Code utilities for bob_dev:
 
 import subprocess
 
-from src.bob_dev.services.terminal import print_error
+from ..services.terminal import print_error
 
 
-def read_agents_from_claude_cmd(claude_cmd: str) -> list[str]:
+def read_agents_from_claude(claude_cmd: str) -> list[str]:
     """Run *claude_cmd* with --list-agents and parse the output into a list."""
     try:
         result = subprocess.run(
