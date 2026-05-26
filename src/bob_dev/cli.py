@@ -231,6 +231,14 @@ def main() -> None:
         print_info(f"Aborted. Prompt saved to {prompt_file}")
         sys.exit(0)
 
+    print_info("Prompt preview:")
+    print("-" * 68)
+    print(prompt_md)
+    print("-" * 68)
+    answer = input("\nAre you sure? This will run the Claude Code CLI with the generated prompt. [y/N] ").strip().lower()
+    if answer != "y":
+        print_info("Aborted by user.")
+        sys.exit(0)
     # ── Step 4 – Pass prompt to Claude Code ──────────────────────────────────
     print_step("[4/4]", "Passing prompt to Claude Code …")
     print()
