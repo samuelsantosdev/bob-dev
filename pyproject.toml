@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bob-dev"
-version = "0.2.1"
+version = "0.2.2"
 description = "An AI developer to write code for you"
 readme = "README.md"
 authors = [{ name="Samuel Pereira dos Santos", email="samuelsantosdev@gmail.com" }]
