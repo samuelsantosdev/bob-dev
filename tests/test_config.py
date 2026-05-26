@@ -1,4 +1,4 @@
-"""Tests for bob_dev.helpers.config_helper."""
+"""Tests for bob_dev.services.config."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from bob_dev.helpers.config_helper import update_env_file
+from bob_dev.services.config import update_env_file
 
 
 class TestUpdateEnvFile:

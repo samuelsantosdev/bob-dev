@@ -1,4 +1,4 @@
-"""llm_helper.py
+"""llm.py
 
 LLM integration for bob_dev:
   - Build an OpenAI-compatible client for GROK or OpenAI backends.

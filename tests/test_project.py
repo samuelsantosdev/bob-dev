@@ -1,4 +1,4 @@
-"""Tests for bob_dev.helpers.project_helper."""
+"""Tests for bob_dev.services.project."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from bob_dev.helpers.project_helper import (
+from bob_dev.services.project import (
     build_md_context,
     collect_md_context,
     identify_framework,
@@ -102,14 +102,14 @@ class TestBuildMdContext:
         result = build_md_context(tmp_path)
         assert "API documentation" in result
 
-    @patch("bob_dev.helpers.project_helper.summarize")
+    @patch("bob_dev.services.project.summarize")
     def test_readme_summary_included(self, mock_summarize, tmp_path):
         (tmp_path / "README.md").write_text("# Django REST Framework")
         mock_summarize.return_value = "Summary text"
         result = build_md_context(tmp_path)
         assert "Summary text" in result
 
-    @patch("bob_dev.helpers.project_helper.summarize")
+    @patch("bob_dev.services.project.summarize")
     def test_summarize_called_with_readme_content(self, mock_summarize, tmp_path):
         (tmp_path / "README.md").write_text("readme body")
         mock_summarize.return_value = ""
@@ -119,7 +119,7 @@ class TestBuildMdContext:
         assert "readme body" in args[0]
 
     def test_empty_readme_does_not_call_summarize(self, tmp_path):
-        with patch("bob_dev.helpers.project_helper.summarize") as mock_summarize:
+        with patch("bob_dev.services.project.summarize") as mock_summarize:
             build_md_context(tmp_path)
         mock_summarize.assert_not_called()
 

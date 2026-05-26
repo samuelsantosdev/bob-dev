@@ -1,4 +1,4 @@
-"""project_helper.py
+"""project.py
 
 Project context utilities for bob_dev:
   - Collect Markdown files from the repository for LLM context.

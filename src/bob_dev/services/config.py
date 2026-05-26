@@ -1,4 +1,4 @@
-"""config_helper.py
+"""config.py
 
 Configuration utilities for bob_dev:
   - Write / update key-value pairs in the .env file.
@@ -53,6 +53,9 @@ def check_configuration(
     agent: str,
     grok_api_key: str,
     openai_api_key: str,
+    gitlab_url: str,
+    gitlab_api_token: str,
+    task_manager: str,
     jira_url: str,
     jira_email: str,
     jira_api_token: str,
@@ -65,7 +68,7 @@ def check_configuration(
     # ── LLM API key ───────────────────────────────────────────────────────
     print_info(f"Checking {agent} API key …")
     try:
-        from .llm_helper import build_llm_client, llm_model
+        from .llm import build_llm_client, llm_model
 
         client   = build_llm_client(agent, grok_api_key, openai_api_key)
         model    = llm_model(agent)
@@ -79,16 +82,29 @@ def check_configuration(
     except Exception as exc:
         print_error(f"Failed to connect to {agent} API: {exc}")
 
-    # ── Jira credentials ──────────────────────────────────────────────────
-    print_info("Checking Jira credentials …")
-    try:
-        from atlassian import Jira
+    if task_manager == "GITLAB":
+        # ── GitLab credentials ───────────────────────────────────────────────
+        print_info("Checking GitLab credentials …")
+        try:
+            from gitlab import Gitlab
 
-        jira = Jira(url=jira_url, username=jira_email, password=jira_api_token, cloud=True)
-        user = jira.myself()
-        print_success(f"Jira credentials OK. Authenticated as: {user.get('displayName')}")
-    except Exception as exc:
-        print_error(f"Failed to connect to Jira: {exc}")
+            gl = Gitlab(url=gitlab_url, private_token=gitlab_api_token)
+            user = gl.user
+            print_success(f"GitLab credentials OK. Authenticated as: {user['name']}")
+        except Exception as exc:
+            print_error(f"Failed to connect to GitLab: {exc}")
+    
+    if task_manager == "JIRA":
+        # ── Jira credentials ──────────────────────────────────────────────────
+        print_info("Checking Jira credentials …")
+        try:
+            from atlassian import Jira
+
+            jira = Jira(url=jira_url, username=jira_email, password=jira_api_token, cloud=True)
+            user = jira.myself()
+            print_success(f"Jira credentials OK. Authenticated as: {user.get('displayName')}")
+        except Exception as exc:
+            print_error(f"Failed to connect to Jira: {exc}")
 
     # ── Claude Code CLI ───────────────────────────────────────────────────
     print_info(f"Checking Claude Code CLI ({claude_cmd}) …")

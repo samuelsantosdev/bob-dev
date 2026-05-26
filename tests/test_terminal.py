@@ -1,4 +1,4 @@
-"""Tests for bob_dev.helpers.terminal."""
+"""Tests for bob_dev.services.terminal."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from bob_dev.helpers.terminal import (
+from bob_dev.services.terminal import (
     BOLD,
     GREEN,
     RED,

@@ -1,4 +1,4 @@
-"""jira_helper.py
+"""jira.py
 
 Jira integration utilities for bob_dev:
   - Fetch a Jira issue and normalise its fields into a plain dict.

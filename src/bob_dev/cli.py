@@ -23,6 +23,7 @@ Environment variables (.env next to this file or exported):
     JIRA_URL        – https://your-org.atlassian.net
     JIRA_EMAIL      – Atlassian account e-mail
     JIRA_API_TOKEN  – Atlassian API token
+    TASK_MANAGER    – "JIRA" (default) or "GITLAB"
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from pathlib import Path
 from InquirerPy import inquirer
 from dotenv import load_dotenv
 
-from .helpers.terminal import (
+from .services.terminal import (
     BOLD,
     RESET,
     print_error,
@@ -47,10 +48,11 @@ from .helpers.terminal import (
     run_subprocess,
     run_with_spinner,
 )
-from .helpers.jira_helper import get_jira_task
-from .helpers.llm_helper import analyse_prompt, llm_model, prompt_claude_code
-from .helpers.project_helper import build_md_context, identify_framework
-from .helpers.config_helper import check_configuration, update_env_file
+from .services.jira import get_jira_task
+from .services.gitlab import get_gitlab_task
+from .services.llm import analyse_prompt, llm_model, prompt_claude_code
+from .services.project import build_md_context, identify_framework
+from .services.config import check_configuration, update_env_file
 
 # ---------------------------------------------------------------------------
 # Module-level configuration
@@ -58,14 +60,19 @@ from .helpers.config_helper import check_configuration, update_env_file
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 load_dotenv(SCRIPT_DIR / ".env")
+ENV_PATH = Path.home() / ".bob_dev" / ".env"
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 GROK_API_KEY   = os.environ.get("GROK_API_KEY", "")
 AGENT          = os.environ.get("AGENT", "GROK").upper()   # "GROK" or "OPENAI"
+TASK_MANAGER   = os.environ.get("TASK_MANAGER", "JIRA").upper()  # "JIRA" or "GITLAB"
 
 JIRA_URL       = os.environ.get("JIRA_URL", "")
 JIRA_EMAIL     = os.environ.get("JIRA_EMAIL", "")
 JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
+
+GITLAB_URL       = os.environ.get("GITLAB_URL", "")
+GITLAB_API_TOKEN = os.environ.get("GITLAB_API_TOKEN", "")
 
 REPO_BASE_PATH  = Path("./")   # Overridden by --path at runtime.
 CLAUDE_CODE_CMD = "claude"     # Must be on $PATH.
@@ -84,7 +91,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--task_id", type=str,
-        help="Jira task ID to process (e.g. PROJ-123).",
+        help="Task ID to process (e.g. PROJ-123 for Jira or 42 for GitLab).",
     )
     parser.add_argument(
         "--path", type=str, default="./",
@@ -107,15 +114,19 @@ def main() -> None:
 
     # ── Require task_id for normal workflow ──────────────────────────────────
     if not args.task_id:
-        print_error("Jira task ID is required. Use --task_id PROJ-123.")
+        print_error("Task ID is required. Use --task_id PROJ-123 for Jira or 42 for GitLab.")
         sys.exit(1)
 
     task_id = args.task_id.strip().upper()
     agent   = args.agent.upper()
 
     # ── Validate credentials before making any API calls ────────────────────
-    if not all([JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN]):
+    if TASK_MANAGER == "JIRA" and not all([JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN]):
         print_error("Jira credentials are not configured. Run `bob-dev --configure`.")
+        sys.exit(1)
+
+    if TASK_MANAGER == "GITLAB" and not all([GITLAB_URL, GITLAB_API_TOKEN]):
+        print_error("GitLab credentials are not configured. Run `bob-dev --configure`.")
         sys.exit(1)
 
     if agent == "GROK" and not GROK_API_KEY:
@@ -135,18 +146,26 @@ def main() -> None:
         sys.exit(1)
 
     print_info(f"Project path  : {REPO_BASE_PATH}")
-    print_info(f"Jira task ID  : {task_id}")
+    print_info(f"{TASK_MANAGER} task ID  : {task_id}")
     print_info(f"LLM backend   : {agent} ({llm_model(agent)})")
     print()
 
-    # ── Step 1 – Fetch Jira task ─────────────────────────────────────────────
-    print_step("[1/4]", f"Fetching Jira task {task_id} …")
+    # ── Step 1 – Fetch task ─────────────────────────────────────────────
+    print_step("[1/4]", f"Fetching {TASK_MANAGER} task {task_id} …")
 
-    task = asyncio.run(run_with_spinner(
-        get_jira_task,
-        task_id, JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN,
-        label="Fetching Jira task",
-    ))
+    if TASK_MANAGER == "JIRA":
+        task = asyncio.run(run_with_spinner(
+            get_jira_task,
+            task_id, JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN,
+            label="Fetching Jira task",
+        ))
+
+    if TASK_MANAGER == "GITLAB":
+        task = asyncio.run(run_with_spinner(
+            get_gitlab_task,
+            task_id, GITLAB_URL, GITLAB_API_TOKEN,
+            label="Fetching GitLab task",
+        ))
 
     print_success(f"Title         : {task['title']}")
     print_success(f"Fix versions  : {', '.join(task['fix_versions']) or 'N/A'}")
@@ -154,8 +173,9 @@ def main() -> None:
 
     acceptance_criteria = task["description"]
     if not acceptance_criteria.strip():
-        print_error("The Jira task has no description / acceptance criteria.")
+        print_error(f"The {TASK_MANAGER} task has no description / acceptance criteria.")
         sys.exit(1)
+
 
     # ── Step 2 – Read project docs & generate prompt ─────────────────────────
     print_step("[2/4]", f"Generating Claude Code prompt via {agent} ({llm_model(agent)}) …")
@@ -242,7 +262,9 @@ async def _pass_to_claude_code(prompt_md: str, task_id: str) -> None:
 
 def _run_configure() -> None:
     """Interactive wizard to write API keys and Jira credentials to .env."""
-    env_path = SCRIPT_DIR / ".env"
+    env_path = ENV_PATH
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Configuration file will be saved to: {env_path}")
     print_step("[CONFIGURE]", "Running initial configuration …")
 
     # Choose the LLM backend.
@@ -258,20 +280,37 @@ def _run_configure() -> None:
     update_env_file(env_key, api_key, env_path)
     print_success(f"{system_choice} API key saved.")
 
-    # Jira credentials.
-    print("\nJira configuration:")
-    jira_url   = input("JIRA_URL   (e.g. https://your-org.atlassian.net): ").strip()
-    jira_email = input("JIRA_EMAIL (your Atlassian account e-mail)       : ").strip()
-    jira_token = input("JIRA_API_TOKEN (Atlassian API token)              : ").strip()
+    print("\n Tasks manager configuration:")
+    task_manager = inquirer.select(
+        message="Select the default task manager:",
+        choices=["JIRA", "GITLAB"],
+    ).execute()
+    update_env_file("TASK_MANAGER", task_manager, env_path)
+    print_success(f"Task manager set to {task_manager}.")
+    
+    print("\nNote: The rest of the configuration depends on the selected task manager. You can run `bob-dev --configure` again to set it up later.")
 
+    if task_manager == "JIRA":
+        # Jira credentials.
+        print("\nJira configuration:")
+        jira_url   = input("JIRA_URL   (e.g. https://your-org.atlassian.net): ").strip()
+        jira_email = input("JIRA_EMAIL (your Atlassian account e-mail)       : ").strip()
+        jira_token = input("JIRA_API_TOKEN (Atlassian API token)              : ").strip()
+    if task_manager == "GITLAB":
+        # GitLab credentials.
+        print("\nGitLab configuration:")
+        gitlab_url   = input("GITLAB_URL   (e.g. https://gitlab.com)            : ").strip()
+        gitlab_token = input("GITLAB_API_TOKEN (GitLab API token)              : ").strip()
     for key, val in [
         ("JIRA_URL",       jira_url),
         ("JIRA_EMAIL",     jira_email),
         ("JIRA_API_TOKEN", jira_token),
+        ("GITLAB_URL",     gitlab_url),
+        ("GITLAB_API_TOKEN", gitlab_token),
     ]:
         update_env_file(key, val, env_path)
 
-    print_success("Jira configuration saved.")
+    print_success(f"{task_manager} configuration saved.")
 
     # Claude Code API key.
     print("\nClaude Code API key:")
@@ -286,6 +325,9 @@ def _run_configure() -> None:
             agent          = os.environ.get("AGENT", "GROK").upper(),
             grok_api_key   = os.environ.get("GROK_API_KEY", ""),
             openai_api_key = os.environ.get("OPENAI_API_KEY", ""),
+            gitlab_url     = os.environ.get("GITLAB_URL", ""),
+            gitlab_api_token = os.environ.get("GITLAB_API_TOKEN", ""),
+            task_manager   = os.environ.get("TASK_MANAGER", "JIRA").upper(),
             jira_url       = jira_url,
             jira_email     = jira_email,
             jira_api_token = jira_token,
