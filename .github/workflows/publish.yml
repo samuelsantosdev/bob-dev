@@ -60,9 +60,11 @@ jobs:
 
       - name: Set version from tag
         run: |
-          VERSION="${{ github.ref_name }}"
+          VERSION="${GITHUB_REF#refs/tags/}"
           VERSION="${VERSION#v}"
-          sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+          echo "Building version: ${VERSION}"
+          grep '^version' pyproject.toml
 
       - name: Install build
         run: pip install build
