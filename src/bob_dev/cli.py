@@ -50,6 +50,7 @@ from .services.terminal import (
 )
 from .services.jira import get_jira_task
 from .services.gitlab import get_gitlab_task
+from .services.claude import read_agents_from_claude
 from .services.llm import analyse_prompt, llm_model, prompt_claude_code
 from .services.project import build_md_context, identify_framework
 from .services.config import check_configuration, update_env_file
@@ -239,17 +240,27 @@ def main() -> None:
     if answer != "y":
         print_info("Aborted by user.")
         sys.exit(0)
+    
+    answer = input("Do you want select a agent to do this development? [y/N] ").strip().upper()
+    agent_claude = ""
+    if answer == "Y":
+        agents_of_claude = read_agents_from_claude(CLAUDE_CODE_CMD)
+        agent_claude = inquirer.select(
+            message="Select the agent to do the development:",
+            choices=agents_of_claude,
+        ).execute()
+
     # ── Step 4 – Pass prompt to Claude Code ──────────────────────────────────
     print_step("[4/4]", "Passing prompt to Claude Code …")
     print()
-    asyncio.run(_pass_to_claude_code(prompt_md, task_id))
+    asyncio.run(_pass_to_claude_code(prompt_md, task_id, agent_claude))
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-async def _pass_to_claude_code(prompt_md: str, task_id: str) -> None:
+async def _pass_to_claude_code(prompt_md: str, task_id: str, agent_claude: str=None) -> None:
     """Write the prompt to a temp file, then run Claude Code non-interactively."""
 
     # Persist the prompt so the user can review it regardless of outcome.
@@ -259,6 +270,8 @@ async def _pass_to_claude_code(prompt_md: str, task_id: str) -> None:
     print_info(f"Prompt saved to: {prompt_file}")
 
     cmd = [CLAUDE_CODE_CMD, "--dangerously-skip-permissions", "--print", prompt_md]
+    if agent_claude:
+        cmd.extend(["--agent", agent_claude])
     print_info(f"Running: {' '.join(cmd[:2])} <prompt>")
     print()
 
