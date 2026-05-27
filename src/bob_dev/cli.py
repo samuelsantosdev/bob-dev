@@ -33,6 +33,7 @@ import sys
 import argparse
 import asyncio
 from pathlib import Path
+from time import sleep, time
 
 from InquirerPy import inquirer
 from dotenv import load_dotenv
@@ -60,8 +61,8 @@ from .services.config import check_configuration, update_env_file
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-load_dotenv(SCRIPT_DIR / ".env")
 ENV_PATH = Path.home() / ".bob_dev" / ".env"
+load_dotenv(ENV_PATH)  # Load .env if it exists, but don't require it
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 GROK_API_KEY   = os.environ.get("GROK_API_KEY", "")
@@ -221,39 +222,34 @@ def main() -> None:
     ))
 
     print(f"\n{BOLD}── Prompt Analysis {'─' * 50}{RESET}")
-    print(analysis)
+    for line in analysis.splitlines():
+        print(line)
+        sleep(0.02)  # Simulate a "typing" effect for better readability
     print("─" * 68 + "\n")
 
     # ── Confirm before handing off to Claude Code ────────────────────────────
-    answer = input("Proceed and send prompt to Claude Code? [y/N] ").strip().lower()
+    answer = input("Proceed to prompt preview? [y/N] ").strip().lower()
     if answer != "y":
         prompt_file = SCRIPT_DIR / f"claude_prompt-{task_id}.md"
         prompt_file.write_text(prompt_md, encoding="utf-8")
         print_info(f"Aborted. Prompt saved to {prompt_file}")
         sys.exit(0)
 
-    print_info("Prompt preview:")
+    print_info("\n\n\nPrompt preview:")
     print("-" * 68)
-    print(prompt_md)
+    for line in prompt_md.splitlines():
+        print(line)
+        sleep(0.02)  # Simulate a "typing" effect for better readability
     print("-" * 68)
     answer = input("\nAre you sure? This will run the Claude Code CLI with the generated prompt. [y/N] ").strip().lower()
     if answer != "y":
         print_info("Aborted by user.")
         sys.exit(0)
-    
-    answer = input("Do you want select a agent to do this development? [y/N] ").strip().upper()
-    agent_claude = ""
-    if answer == "Y":
-        agents_of_claude = read_agents_from_claude(CLAUDE_CODE_CMD)
-        agent_claude = inquirer.select(
-            message="Select the agent to do the development:",
-            choices=agents_of_claude,
-        ).execute()
 
     # ── Step 4 – Pass prompt to Claude Code ──────────────────────────────────
     print_step("[4/4]", "Passing prompt to Claude Code …")
     print()
-    asyncio.run(_pass_to_claude_code(prompt_md, task_id, agent_claude))
+    asyncio.run(_pass_to_claude_code(prompt_md, task_id, None))
 
 
 # ---------------------------------------------------------------------------
