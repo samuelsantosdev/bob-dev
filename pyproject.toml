@@ -1,7 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "bob-dev"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.2"
+description = "An AI developer to write code for you"
 readme = "README.md"
+authors = [{ name="Samuel Pereira dos Santos", email="samuelsantosdev@gmail.com" }]
 requires-python = ">=3.14"
 dependencies = []
+
+[project.scripts]
+bob-dev = "bob_dev.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
