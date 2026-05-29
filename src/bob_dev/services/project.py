@@ -23,6 +23,7 @@ def collect_md_context(
     root: Path,
     max_files: int = 30,
     max_chars: int = 40_000,
+    max_words: int = 2000,
 ) -> str:
     """Walk *root* and return concatenated content of Markdown files.
 
@@ -33,6 +34,7 @@ def collect_md_context(
     parts: list[str] = []
     total = 0
 
+    summarize_context = sum(md.stat().st_size for md in md_files) > max_chars
     for md in md_files:
         try:
             text = md.read_text(encoding="utf-8", errors="ignore")
@@ -44,6 +46,9 @@ def collect_md_context(
 
         if total + len(chunk) > max_chars:
             break
+        
+        if summarize_context:
+            chunk = f"### {relative}\n\n" + summarize(text, words=max_words) + "\n\n"
 
         parts.append(chunk)
         total += len(chunk)
@@ -66,14 +71,14 @@ def read_readme(repo_path: Path) -> str:
     return ""
 
 
-def build_md_context(repo_path: Path) -> str:
+def build_md_context(repo_path: Path, max_summary_words: int = 2000) -> str:
     """Build a combined context string for LLM consumption.
 
-    Combines a summarised README (up to 300 words) with the full
+    Combines a summarised README (up to max_summary_words) with the full
     Markdown context collected from the repository.
     """
     readme_raw     = read_readme(repo_path)
-    readme_summary = summarize(readme_raw, words=300) if readme_raw.strip() else ""
+    readme_summary = summarize(readme_raw, words=max_summary_words) if readme_raw.strip() else ""
     md_context     = collect_md_context(repo_path)
 
     return "# README:\n" + readme_summary + "\n\n# Context:\n" + md_context

@@ -219,4 +219,4 @@ __marimo__/
 
 .env
 
-./src/bob_dev/tmp/*.md
+src/bob_dev/tmp/*.md

@@ -2,7 +2,6 @@ annotated-types==0.7.0
 anyio==4.13.0
 atlassian-python-api==4.0.7
 beautifulsoup4==4.14.3
--e git+ssh://git@github.com/samuelsantosdev/bob-dev.git@0cf4f6f10f7bb17ff3949164acf514f6cda7340f#egg=bob_dev
 certifi==2026.4.22
 charset-normalizer==3.4.7
 Deprecated==1.3.1

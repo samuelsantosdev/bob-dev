@@ -3,8 +3,9 @@
 LLM integration for bob_dev:
   - Build an OpenAI-compatible client for GROK or OpenAI backends.
   - Return the appropriate model name for a given backend.
-  - Generate a Claude Code prompt from Jira acceptance criteria.
+  - Generate a Claude Code prompt from task acceptance criteria.
   - Analyse a generated prompt for gaps and security concerns.
+  - Regenerate a prompt based on user feedback after analysis.
 """
 
 from __future__ import annotations
@@ -12,36 +13,33 @@ from __future__ import annotations
 import textwrap
 
 from openai import OpenAI
+from openai import OpenAIError
 
-
-# ---------------------------------------------------------------------------
-# Client & model helpers
-# ---------------------------------------------------------------------------
 
 def build_llm_client(agent: str, grok_api_key: str, openai_api_key: str) -> OpenAI:
     """Return an OpenAI-compatible client for *agent* ("GROK" or "OPENAI").
 
     Raises EnvironmentError if the required API key is missing.
+    Raises ConnectionError if the LLM client cannot be created.
     """
-    if agent == "GROK":
-        if not grok_api_key:
-            raise EnvironmentError("GROK_API_KEY is not set in .env")
-        return OpenAI(api_key=grok_api_key, base_url="https://api.x.ai/v1")
+    try:
+        if agent == "GROK":
+            if not grok_api_key:
+                raise EnvironmentError("GROK_API_KEY is not set in .env")
+            return OpenAI(api_key=grok_api_key, base_url="https://api.x.ai/v1")
 
-    # Default: OpenAI
-    if not openai_api_key:
-        raise EnvironmentError("OPENAI_API_KEY is not set in .env")
-    return OpenAI(api_key=openai_api_key)
+        # Default: OpenAI
+        if not openai_api_key:
+            raise EnvironmentError("OPENAI_API_KEY is not set in .env")
+        return OpenAI(api_key=openai_api_key)
+    except OpenAIError as exc:
+        raise ConnectionError(f"Failed to create LLM client for {agent}: {exc}") from exc
 
 
 def llm_model(agent: str) -> str:
     """Return the model identifier for the given *agent* backend."""
     return "grok-3" if agent == "GROK" else "gpt-4o"
 
-
-# ---------------------------------------------------------------------------
-# Prompt generation
-# ---------------------------------------------------------------------------
 
 def prompt_claude_code(
     acceptance_criteria: str,
@@ -64,8 +62,6 @@ def prompt_claude_code(
         Detected framework name (e.g. "Django REST Framework").
     agent:
         "GROK" or "OPENAI".
-    grok_api_key / openai_api_key:
-        API keys; the unused one may be an empty string.
     task_meta:
         Optional dict with 'task_id', 'title', 'fix_versions' for context.
 
@@ -141,10 +137,6 @@ def prompt_claude_code(
     return response.choices[0].message.content or ""
 
 
-# ---------------------------------------------------------------------------
-# Prompt analysis
-# ---------------------------------------------------------------------------
-
 def analyse_prompt(
     prompt_md: str,
     acceptance_criteria: str,
@@ -154,7 +146,18 @@ def analyse_prompt(
 ) -> str:
     """Ask the LLM to review *prompt_md* for ambiguities and security concerns.
 
-    Returns a short bullet-point analysis string (max ~300 words).
+    Parameters
+    ----------
+    prompt_md:
+        The generated Claude Code prompt in Markdown format.
+    acceptance_criteria:
+        The original acceptance criteria text from Jira.
+    agent:
+        "GROK" or "OPENAI".
+    Returns
+    -------
+    str
+        A concise analysis of the prompt's gaps, ambiguities, and security issues.
     """
     client = build_llm_client(agent, grok_api_key, openai_api_key)
     model  = llm_model(agent)
@@ -182,6 +185,74 @@ def analyse_prompt(
             {"role": "user",   "content": user_message},
         ],
         temperature=0.2,
+    )
+
+    return response.choices[0].message.content or ""
+
+
+def review_prompt(
+    acceptance_criteria: str,
+    md_context: str,
+    considerations: str,
+    agent: str,
+    grok_api_key: str,
+    openai_api_key: str,
+) -> str:
+    """Ask the LLM to regenerate the prompt based on *considerations*.
+
+    This is used when the user wants to refine the prompt after an initial review.
+    
+    Parameters
+    ----------
+    acceptance_criteria:
+        Raw description text from the Jira task.
+    md_context:
+        Pre-built string of project Markdown files + summarised README.
+    considerations:
+        User-provided feedback on what to improve in the prompt.
+    agent:
+        "GROK" or "OPENAI".
+    Returns
+    -------
+    str
+        A new version of the Claude Code prompt, improved according to the feedback.
+    """
+    client = build_llm_client(agent, grok_api_key, openai_api_key)
+    model  = llm_model(agent)
+
+    system_prompt = textwrap.dedent(f"""
+        You are a senior software engineer refining a Claude Code prompt based on feedback.
+        The original prompt had the following issues:
+        {considerations}
+
+        Regenerate the Claude Code prompt, improving it according to the feedback above.
+        Maintain all original requirements and formatting instructions, but address the
+        identified issues to make it more actionable and secure.
+    """).strip()
+
+    user_message = textwrap.dedent(f"""
+        ## Project Documentation
+
+        {md_context}
+
+        ---
+
+        ## Original Acceptance Criteria
+
+        {acceptance_criteria}
+
+        ---
+
+        Regenerate the Claude Code prompt based on the feedback provided.
+    """).strip()
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_message},
+        ],
+        temperature=0.3,
     )
 
     return response.choices[0].message.content or ""

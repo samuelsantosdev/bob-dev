@@ -8,7 +8,7 @@ version = "0.2.3"
 description = "An AI developer to write code for you"
 readme = "README.md"
 authors = [{ name="Samuel Pereira dos Santos", email="samuelsantosdev@gmail.com" }]
-requires-python = ">=3.14"
+requires-python = ">=3.12.10"
 dependencies = []
 
 [project.scripts]

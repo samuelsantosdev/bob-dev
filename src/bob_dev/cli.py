@@ -33,7 +33,7 @@ import sys
 import argparse
 import asyncio
 from pathlib import Path
-from time import sleep, time
+from time import sleep
 
 from InquirerPy import inquirer
 from dotenv import load_dotenv
@@ -51,8 +51,7 @@ from .services.terminal import (
 )
 from .services.jira import get_jira_task
 from .services.gitlab import get_gitlab_task
-from .services.claude import read_agents_from_claude
-from .services.llm import analyse_prompt, llm_model, prompt_claude_code
+from .services.llm import analyse_prompt, llm_model, prompt_claude_code, review_prompt
 from .services.project import build_md_context, identify_framework
 from .services.config import check_configuration, update_env_file
 
@@ -64,8 +63,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ENV_PATH = Path.home() / ".bob_dev" / ".env"
 load_dotenv(ENV_PATH)  # Load .env if it exists, but don't require it
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-GROK_API_KEY   = os.environ.get("GROK_API_KEY", "")
 AGENT          = os.environ.get("AGENT", "GROK").upper()   # "GROK" or "OPENAI"
 TASK_MANAGER   = os.environ.get("TASK_MANAGER", "JIRA").upper()  # "JIRA" or "GITLAB"
 
@@ -73,12 +70,18 @@ JIRA_URL       = os.environ.get("JIRA_URL", "")
 JIRA_EMAIL     = os.environ.get("JIRA_EMAIL", "")
 JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
 
+GROK_API_KEY   = os.environ.get("GROK_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
 GITLAB_URL       = os.environ.get("GITLAB_URL", "")
 GITLAB_API_TOKEN = os.environ.get("GITLAB_API_TOKEN", "")
 
 REPO_BASE_PATH  = Path("./")   # Overridden by --path at runtime.
 CLAUDE_CODE_CMD = "claude"     # Must be on $PATH.
 
+MAX_FILES = int(os.environ.get("MAX_FILES", 30))
+MAX_CHARS = int(os.environ.get("MAX_CHARS", 40_000))
+MAX_SUMMARY_WORDS = int(os.environ.get("MAX_SUMMARY_WORDS", 2000))
 
 # ---------------------------------------------------------------------------
 # Main entry point
@@ -132,11 +135,11 @@ def main() -> None:
         sys.exit(1)
 
     if agent == "GROK" and not GROK_API_KEY:
-        print_error("GROK_API_KEY is not set. Run `bob-dev --configure`.")
+        print_error("GROK API key is not configured. Run `bob-dev --configure`.")
         sys.exit(1)
 
     if agent == "OPENAI" and not OPENAI_API_KEY:
-        print_error("OPENAI_API_KEY is not set. Run `bob-dev --configure`.")
+        print_error("OpenAI API key is not configured. Run `bob-dev --configure`.")
         sys.exit(1)
 
     # ── Resolve and validate the repository path ─────────────────────────────
@@ -147,9 +150,9 @@ def main() -> None:
         print_error(f"Invalid project path: {REPO_BASE_PATH}")
         sys.exit(1)
 
-    print_info(f"Project path  : {REPO_BASE_PATH}")
-    print_info(f"{TASK_MANAGER} task ID  : {task_id}")
-    print_info(f"LLM backend   : {agent} ({llm_model(agent)})")
+    print_success(f"Project path  : {REPO_BASE_PATH}")
+    print_success(f"{TASK_MANAGER} task ID  : {task_id}")
+    print_success(f"LLM backend   : {agent} ({llm_model(agent)})")
     print()
 
     # ── Step 1 – Fetch task ─────────────────────────────────────────────
@@ -184,7 +187,7 @@ def main() -> None:
 
     # Collect Markdown context (blocking I/O) inside the spinner thread.
     md_context = asyncio.run(run_with_spinner(
-        build_md_context, REPO_BASE_PATH,
+        build_md_context, REPO_BASE_PATH, MAX_SUMMARY_WORDS,
         label="Reading project docs",
     ))
 
@@ -196,58 +199,73 @@ def main() -> None:
         print_warn(str(exc))
         framework = "the project"
 
-    prompt_md = asyncio.run(run_with_spinner(
-        prompt_claude_code,
-        acceptance_criteria, md_context, framework,
-        agent, GROK_API_KEY, OPENAI_API_KEY,
-        label="Generating prompt",
-        task_meta=task,
-    ))
+    execute_prompt = False
+    while execute_prompt is False:
+        prompt_md = asyncio.run(run_with_spinner(
+            prompt_claude_code,
+            acceptance_criteria, md_context, framework,
+            agent, GROK_API_KEY, OPENAI_API_KEY,
+            label="Generating prompt",
+            task_meta=task,
+        ))
 
-    if not prompt_md.strip():
-        print_error("Failed to generate a prompt for Claude Code.")
-        sys.exit(1)
+        if not prompt_md.strip():
+            print_error("Failed to generate a prompt for Claude Code.")
+            sys.exit(1)
 
-    print_success("Prompt generated.")
-    print()
+        print_success("Prompt generated.")
+        print()
 
-    # ── Step 3 – Analyse the prompt ──────────────────────────────────────────
-    print_step("[3/4]", "Analysing the prompt for issues …")
+        # ── Step 3 – Analyse the prompt ──────────────────────────────────────────
+        print_step("[3/4]", "Analysing the prompt for issues …")
 
-    analysis = asyncio.run(run_with_spinner(
-        analyse_prompt,
-        prompt_md, acceptance_criteria,
-        agent, GROK_API_KEY, OPENAI_API_KEY,
-        label="Analysing prompt",
-    ))
+        analysis = asyncio.run(run_with_spinner(
+            analyse_prompt,
+            prompt_md, acceptance_criteria,
+            agent, GROK_API_KEY, OPENAI_API_KEY,
+            label="Analysing prompt",
+        ))
 
-    print(f"\n{BOLD}── Prompt Analysis {'─' * 50}{RESET}")
-    for line in analysis.splitlines():
-        print(line)
-        sleep(0.02)  # Simulate a "typing" effect for better readability
-    print("─" * 68 + "\n")
+        print(f"\n{BOLD}── Prompt Analysis {'─' * 50}{RESET}")
+        for line in analysis.splitlines():
+            print(line)
+            sleep(0.02)  # Simulate a "typing" effect for better readability
+        print("─" * 68 + "\n")
 
-    # ── Confirm before handing off to Claude Code ────────────────────────────
-    answer = input("Proceed to prompt preview? [y/N] ").strip().lower()
-    if answer != "y":
-        prompt_file = SCRIPT_DIR / f"claude_prompt-{task_id}.md"
-        prompt_file.write_text(prompt_md, encoding="utf-8")
-        print_info(f"Aborted. Prompt saved to {prompt_file}")
-        sys.exit(0)
+        # ── Confirm before handing off to Claude Code ────────────────────────────
+        answer = input("Proceed to prompt preview? [y/N/c] ").strip().lower()
+        if answer == "n":
+            prompt_file = SCRIPT_DIR / f"claude_prompt-{task_id}.md"
+            prompt_file.write_text(prompt_md, encoding="utf-8")
+            print_info(f"Aborted. Prompt saved to {prompt_file}")
+            sys.exit(0)
+        elif answer == "c":
+            answer = input("Write your considerations to change the prompt: ").strip().lower()
+            md_context = review_prompt(acceptance_criteria, md_context, answer, agent, GROK_API_KEY, OPENAI_API_KEY)
+            continue  # Regenerate the prompt with the new context and considerations.
 
-    print_info("\n\n\nPrompt preview:")
-    print("-" * 68)
-    for line in prompt_md.splitlines():
-        print(line)
-        sleep(0.02)  # Simulate a "typing" effect for better readability
-    print("-" * 68)
-    answer = input("\nAre you sure? This will run the Claude Code CLI with the generated prompt. [y/N] ").strip().lower()
-    if answer != "y":
-        print_info("Aborted by user.")
-        sys.exit(0)
+        print("\n\n")
+        print_step("[4/4]", "Passing prompt to Claude Code …")
+        print_success("Prompt preview:")
+        print("-" * 68)
+        for line in prompt_md.splitlines():
+            print(line)
+            sleep(0.02)  # Simulate a "typing" effect for better readability
+        print("-" * 68)
+        answer = input("\nAre you sure? This will run the Claude Code CLI with the generated prompt. [y/N/c] ").strip().lower()
+        if answer == "n":
+            print_info("Aborted by user.")
+            sys.exit(0)
+        elif answer == "c":
+            answer = input("Write your considerations to change the prompt: ").strip().lower()
+            md_context = review_prompt(acceptance_criteria, md_context, answer, agent, GROK_API_KEY, OPENAI_API_KEY)
+            continue  # Regenerate the prompt with the new context and considerations.
+
+        execute_prompt = True
+        break
+            
 
     # ── Step 4 – Pass prompt to Claude Code ──────────────────────────────────
-    print_step("[4/4]", "Passing prompt to Claude Code …")
     print()
     asyncio.run(_pass_to_claude_code(prompt_md, task_id, None))
 

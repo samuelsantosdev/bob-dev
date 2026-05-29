@@ -17,7 +17,7 @@ Given a task ID (Jira or GitLab) it will:
 
 ## Requirements
 
-- Python 3.14+
+- Python 3.12+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and available on `$PATH` as `claude`
 - A **Jira Cloud** account with an [API token](https://id.atlassian.com/manage-profile/security/api-tokens) **or** a **GitLab** account with a [personal access token](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html)
 - An [xAI / GROK](https://console.x.ai/) **or** [OpenAI](https://platform.openai.com/) API key
