@@ -9,7 +9,13 @@ description = "An AI developer to write code for you"
 readme = "README.md"
 authors = [{ name="Samuel Pereira dos Santos", email="samuelsantosdev@gmail.com" }]
 requires-python = ">=3.12.10"
-dependencies = []
+dependencies = [
+    "faiss-cpu>=1.9.0",
+    "langchain>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-text-splitters>=0.3.0",
+]
 
 [project.scripts]
 bob-dev = "bob_dev.cli:main"
@@ -20,3 +26,6 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore:.*langchain-community.*:DeprecationWarning",
+]

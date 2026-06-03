@@ -170,10 +170,11 @@ class TestMainWorkflow:
         }
 
         mock_spinner = self._make_spinner(
-            mock_task,            # get_jira_task
-            "Django REST Framework context",  # build_md_context
-            "Generated prompt text",          # prompt_claude_code
-            "Analysis bullet points",         # analyse_prompt
+            mock_task,                          # get_jira_task
+            "Django REST Framework context",    # build_md_context
+            "",                                 # retrieve_rag_context
+            "Generated prompt text",            # run_langchain_chain
+            "Analysis bullet points",           # analyse_prompt
         )
 
         with _set_argv("--task_id", "PROJ-1", "--path", str(tmp_path)):
@@ -236,8 +237,9 @@ class TestMainWorkflow:
         mock_spinner = self._make_spinner(
             mock_task,
             "fastapi context",
-            "Prompt text",
-            "Analysis",
+            "",             # retrieve_rag_context
+            "Prompt text",  # run_langchain_chain
+            "Analysis",     # analyse_prompt
         )
 
         with _set_argv("--task_id", "proj-99", "--path", str(tmp_path)):

@@ -51,9 +51,11 @@ from .services.terminal import (
 )
 from .services.jira import get_jira_task
 from .services.gitlab import get_gitlab_task
-from .services.llm import analyse_prompt, llm_model, prompt_claude_code, review_prompt
+from .services.llm import analyse_prompt, llm_model, review_prompt
 from .services.project import build_md_context, identify_framework
 from .services.config import check_configuration, update_env_file
+from .services.langchain_service import run_langchain_chain
+from .services.rag import retrieve_rag_context
 
 # ---------------------------------------------------------------------------
 # Module-level configuration
@@ -156,7 +158,7 @@ def main() -> None:
     print()
 
     # ── Step 1 – Fetch task ─────────────────────────────────────────────
-    print_step("[1/4]", f"Fetching {TASK_MANAGER} task {task_id} …")
+    print_step("[1/5]", f"Fetching {TASK_MANAGER} task {task_id} …")
 
     if TASK_MANAGER == "JIRA":
         task = asyncio.run(run_with_spinner(
@@ -182,16 +184,14 @@ def main() -> None:
         sys.exit(1)
 
 
-    # ── Step 2 – Read project docs & generate prompt ─────────────────────────
-    print_step("[2/4]", f"Generating Claude Code prompt via {agent} ({llm_model(agent)}) …")
+    # ── Step 2 – Read project docs ───────────────────────────────────────────
+    print_step("[2/5]", "Reading project documentation …")
 
-    # Collect Markdown context (blocking I/O) inside the spinner thread.
     md_context = asyncio.run(run_with_spinner(
         build_md_context, REPO_BASE_PATH, MAX_SUMMARY_WORDS,
         label="Reading project docs",
     ))
 
-    # Framework detection is fast – no spinner needed.
     try:
         framework = identify_framework(md_context)
         print_success(f"Detected framework : {framework}")
@@ -199,14 +199,29 @@ def main() -> None:
         print_warn(str(exc))
         framework = "the project"
 
+    # ── Step 3 – Build RAG index from framework documentation ────────────────
+    print_step("[3/5]", f"Building RAG index for {framework} …")
+
+    rag_context = asyncio.run(run_with_spinner(
+        retrieve_rag_context,
+        framework, acceptance_criteria,
+        agent, GROK_API_KEY, OPENAI_API_KEY,
+        label="Building RAG context",
+    ))
+
+    if rag_context:
+        print_success("RAG context ready.")
+    else:
+        print_warn(f"No documentation mapped for '{framework}' — RAG context skipped.")
+    print()
+
     execute_prompt = False
     while execute_prompt is False:
         prompt_md = asyncio.run(run_with_spinner(
-            prompt_claude_code,
-            acceptance_criteria, md_context, framework,
-            agent, GROK_API_KEY, OPENAI_API_KEY,
+            run_langchain_chain,
+            acceptance_criteria, md_context, task_id, framework,
+            agent, GROK_API_KEY, OPENAI_API_KEY, rag_context,
             label="Generating prompt",
-            task_meta=task,
         ))
 
         if not prompt_md.strip():
@@ -216,8 +231,8 @@ def main() -> None:
         print_success("Prompt generated.")
         print()
 
-        # ── Step 3 – Analyse the prompt ──────────────────────────────────────────
-        print_step("[3/4]", "Analysing the prompt for issues …")
+        # ── Step 4 – Analyse the prompt ──────────────────────────────────────────
+        print_step("[4/5]", "Analysing the prompt for issues …")
 
         analysis = asyncio.run(run_with_spinner(
             analyse_prompt,
@@ -245,7 +260,7 @@ def main() -> None:
             continue  # Regenerate the prompt with the new context and considerations.
 
         print("\n\n")
-        print_step("[4/4]", "Passing prompt to Claude Code …")
+        print_step("[5/5]", "Passing prompt to Claude Code …")
         print_success("Prompt preview:")
         print("-" * 68)
         for line in prompt_md.splitlines():
@@ -265,7 +280,7 @@ def main() -> None:
         break
             
 
-    # ── Step 4 – Pass prompt to Claude Code ──────────────────────────────────
+    # ── Step 5 – Pass prompt to Claude Code ──────────────────────────────────
     print()
     asyncio.run(_pass_to_claude_code(prompt_md, task_id, None))
 
