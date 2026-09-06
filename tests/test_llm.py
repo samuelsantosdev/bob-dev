@@ -9,6 +9,7 @@ import pytest
 from bob_dev.services.llm import (
     analyse_prompt,
     build_llm_client,
+    chat_completion,
     llm_model,
     prompt_claude_code,
 )
@@ -130,6 +131,33 @@ class TestPromptClaudeCode:
         messages = mock_client.chat.completions.create.call_args[1]["messages"]
         system_content = next(m["content"] for m in messages if m["role"] == "system")
         assert "NestJS" in system_content
+
+
+class TestChatCompletion:
+    @patch("bob_dev.services.llm.build_llm_client")
+    def test_returns_reply_content(self, mock_build):
+        mock_build.return_value = _make_mock_client("Hi there!")
+        messages = [{"role": "user", "content": "hello"}]
+        result = chat_completion(messages, "GROK", "key", "")
+        assert result == "Hi there!"
+
+    @patch("bob_dev.services.llm.build_llm_client")
+    def test_forwards_messages_unmodified(self, mock_build):
+        mock_client = _make_mock_client("ok")
+        mock_build.return_value = mock_client
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+        ]
+        chat_completion(messages, "OPENAI", "", "key")
+        assert mock_client.chat.completions.create.call_args[1]["messages"] == messages
+
+    @patch("bob_dev.services.llm.build_llm_client")
+    def test_returns_empty_string_when_content_is_none(self, mock_build):
+        mock_client = _make_mock_client(None)
+        mock_build.return_value = mock_client
+        result = chat_completion([{"role": "user", "content": "hi"}], "GROK", "key", "")
+        assert result == ""
 
 
 class TestAnalysePrompt:

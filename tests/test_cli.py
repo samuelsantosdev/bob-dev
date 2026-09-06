@@ -34,16 +34,17 @@ class TestConfigureFlag:
 
 
 # ---------------------------------------------------------------------------
-# Missing --task_id
+# Missing --task_id: falls back to the interactive shell
 # ---------------------------------------------------------------------------
 
 class TestMissingTaskId:
-    def test_exits_with_code_1_when_no_task_id(self, capsys):
+    def test_launches_repl_and_exits_zero(self):
         with _set_argv():
-            with pytest.raises(SystemExit) as exc_info:
-                cli_module.main()
-        assert exc_info.value.code == 1
-        assert "task" in capsys.readouterr().out.lower()
+            with patch.object(cli_module, "_run_repl") as mock_repl:
+                with pytest.raises(SystemExit) as exc_info:
+                    cli_module.main()
+        mock_repl.assert_called_once()
+        assert exc_info.value.code == 0
 
 
 # ---------------------------------------------------------------------------
@@ -261,3 +262,64 @@ class TestMainWorkflow:
         # The spinner was called; first call receives the uppercased task ID.
         first_call_args = mock_spinner.call_args_list[0][0]
         assert "PROJ-99" in first_call_args
+
+
+# ---------------------------------------------------------------------------
+# Interactive REPL
+# ---------------------------------------------------------------------------
+
+class TestRepl:
+    def test_exit_command_leaves_immediately(self):
+        with patch("builtins.input", return_value="/exit"):
+            cli_module._run_repl("GROK", "./")
+
+    def test_freeform_input_sent_to_chat_completion(self, capsys):
+        inputs = iter(["hello there", "/exit"])
+        with patch("builtins.input", side_effect=lambda *_: next(inputs)):
+            with patch.multiple(cli_module, GROK_API_KEY="key"):
+                with patch("bob_dev.cli.chat_completion", return_value="Hi! How can I help?") as mock_chat:
+                    cli_module._run_repl("GROK", "./")
+        mock_chat.assert_called_once()
+        # `history` is mutated in place after the call, so the recorded reference
+        # reflects its final state (user turn followed by the assistant reply).
+        messages = mock_chat.call_args[0][0]
+        assert messages[-2] == {"role": "user", "content": "hello there"}
+        assert "Hi! How can I help?" in capsys.readouterr().out
+
+    def test_chat_blocked_when_api_key_missing(self, capsys):
+        inputs = iter(["hello there", "/exit"])
+        with patch("builtins.input", side_effect=lambda *_: next(inputs)):
+            with patch.multiple(cli_module, GROK_API_KEY=""):
+                with patch("bob_dev.cli.chat_completion") as mock_chat:
+                    cli_module._run_repl("GROK", "./")
+        mock_chat.assert_not_called()
+        assert "not configured" in capsys.readouterr().out.lower()
+
+    def test_task_command_invokes_one_shot_workflow(self):
+        inputs = iter(["/task PROJ-1", "/exit"])
+        with patch("builtins.input", side_effect=lambda *_: next(inputs)):
+            with patch.object(cli_module, "_run_one_shot") as mock_one_shot:
+                cli_module._run_repl("GROK", "./")
+        mock_one_shot.assert_called_once_with("PROJ-1", "./", "GROK")
+
+    def test_task_command_survives_one_shot_sys_exit(self):
+        """A SystemExit(1) from _run_one_shot (e.g. bad credentials) shouldn't kill the shell."""
+        inputs = iter(["/task PROJ-1", "/exit"])
+        with patch("builtins.input", side_effect=lambda *_: next(inputs)):
+            with patch.object(cli_module, "_run_one_shot", side_effect=SystemExit(1)):
+                cli_module._run_repl("GROK", "./")  # must not raise
+
+    def test_agent_switch_rejected_when_key_missing(self, capsys):
+        inputs = iter(["/agent OPENAI", "/exit"])
+        with patch("builtins.input", side_effect=lambda *_: next(inputs)):
+            with patch.multiple(cli_module, OPENAI_API_KEY=""):
+                cli_module._run_repl("GROK", "./")
+        assert "not configured" in capsys.readouterr().out.lower()
+
+    def test_agent_switch_updates_session_agent_used_by_task(self):
+        inputs = iter(["/agent OPENAI", "/task PROJ-1", "/exit"])
+        with patch("builtins.input", side_effect=lambda *_: next(inputs)):
+            with patch.multiple(cli_module, OPENAI_API_KEY="key"):
+                with patch.object(cli_module, "_run_one_shot") as mock_one_shot:
+                    cli_module._run_repl("GROK", "./")
+        mock_one_shot.assert_called_once_with("PROJ-1", "./", "OPENAI")
