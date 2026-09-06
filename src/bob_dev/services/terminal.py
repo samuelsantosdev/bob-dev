@@ -3,6 +3,7 @@
 Terminal output utilities for bob_dev:
   - ANSI color constants
   - Typed print helpers (error = red, success = green, plain for everything else)
+  - Syntax-highlighted Markdown/code rendering (Rich)
   - Async spinner with ASCII desert-car animation
   - Async subprocess runner with the same animation
 """
@@ -13,6 +14,9 @@ import asyncio
 import time
 import sys
 from pathlib import Path
+
+from rich.console import Console
+from rich.markdown import Markdown
 
 # ---------------------------------------------------------------------------
 # ANSI color codes
@@ -27,6 +31,15 @@ RESET  = "\033[0m"
 # ---------------------------------------------------------------------------
 # Print helpers
 # ---------------------------------------------------------------------------
+
+# No explicit `file=` so Console resolves sys.stdout at write time (keeps
+# output capturable by tests and redirection instead of binding at import).
+_console = Console()
+
+
+def print_markdown(text: str) -> None:
+    """Render *text* as Markdown, syntax-highlighting any fenced code blocks."""
+    _console.print(Markdown(text))
 
 def print_error(msg: str) -> None:
     """Print a red error line prefixed with [✗]."""

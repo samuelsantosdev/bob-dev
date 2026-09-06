@@ -13,6 +13,7 @@ Workflow
 
 Usage
 -----
+    bob-dev                                   # interactive shell (REPL)
     bob-dev --task_id PROJ-123 --path /path/to/repo
     bob-dev --configure
 
@@ -33,7 +34,6 @@ import sys
 import argparse
 import asyncio
 from pathlib import Path
-from time import sleep
 
 from InquirerPy import inquirer
 from dotenv import load_dotenv
@@ -43,6 +43,7 @@ from .services.terminal import (
     RESET,
     print_error,
     print_info,
+    print_markdown,
     print_step,
     print_success,
     print_warn,
@@ -51,7 +52,7 @@ from .services.terminal import (
 )
 from .services.jira import get_jira_task
 from .services.gitlab import get_gitlab_task
-from .services.llm import analyse_prompt, llm_model, review_prompt
+from .services.llm import analyse_prompt, chat_completion, llm_model, review_prompt
 from .services.project import build_md_context, identify_framework
 from .services.config import check_configuration, update_env_file
 from .services.langchain_service import run_langchain_chain
@@ -90,7 +91,7 @@ MAX_SUMMARY_WORDS = int(os.environ.get("MAX_SUMMARY_WORDS", 2000))
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    """Parse CLI arguments and orchestrate the four-step workflow."""
+    """Parse CLI arguments; run one-shot task workflow, --configure, or the REPL."""
 
     parser = argparse.ArgumentParser(
         prog="bob-dev",
@@ -98,7 +99,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--task_id", type=str,
-        help="Task ID to process (e.g. PROJ-123 for Jira or 42 for GitLab).",
+        help=(
+            "Task ID to process (e.g. PROJ-123 for Jira or 42 for GitLab). "
+            "Omit to start the interactive shell instead."
+        ),
     )
     parser.add_argument(
         "--path", type=str, default="./",
@@ -119,13 +123,18 @@ def main() -> None:
         _run_configure()
         sys.exit(0)
 
-    # ── Require task_id for normal workflow ──────────────────────────────────
+    # ── No task_id on the command line: drop into the interactive REPL ──────
     if not args.task_id:
-        print_error("Task ID is required. Use --task_id PROJ-123 for Jira or 42 for GitLab.")
-        sys.exit(1)
+        _run_repl(args.agent.upper(), args.path)
+        sys.exit(0)
 
-    task_id = args.task_id.strip().upper()
-    agent   = args.agent.upper()
+    _run_one_shot(args.task_id, args.path, args.agent.upper())
+
+
+def _run_one_shot(task_id_raw: str, path: str, agent: str) -> None:
+    """Run the full fetch → context → RAG → prompt → execute workflow once."""
+
+    task_id = task_id_raw.strip().upper()
 
     # ── Validate credentials before making any API calls ────────────────────
     if TASK_MANAGER == "JIRA" and not all([JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN]):
@@ -146,7 +155,7 @@ def main() -> None:
 
     # ── Resolve and validate the repository path ─────────────────────────────
     global REPO_BASE_PATH
-    REPO_BASE_PATH = Path(args.path).resolve()
+    REPO_BASE_PATH = Path(path).resolve()
 
     if not REPO_BASE_PATH.exists() or not REPO_BASE_PATH.is_dir():
         print_error(f"Invalid project path: {REPO_BASE_PATH}")
@@ -242,9 +251,7 @@ def main() -> None:
         ))
 
         print(f"\n{BOLD}── Prompt Analysis {'─' * 50}{RESET}")
-        for line in analysis.splitlines():
-            print(line)
-            sleep(0.02)  # Simulate a "typing" effect for better readability
+        print_markdown(analysis)
         print("─" * 68 + "\n")
 
         # ── Confirm before handing off to Claude Code ────────────────────────────
@@ -263,9 +270,7 @@ def main() -> None:
         print_step("[5/5]", "Passing prompt to Claude Code …")
         print_success("Prompt preview:")
         print("-" * 68)
-        for line in prompt_md.splitlines():
-            print(line)
-            sleep(0.02)  # Simulate a "typing" effect for better readability
+        print_markdown(prompt_md)
         print("-" * 68)
         answer = input("\nAre you sure? This will run the Claude Code CLI with the generated prompt. [y/N/c] ").strip().lower()
         if answer == "n":
@@ -283,6 +288,147 @@ def main() -> None:
     # ── Step 5 – Pass prompt to Claude Code ──────────────────────────────────
     print()
     asyncio.run(_pass_to_claude_code(prompt_md, task_id, None))
+
+
+REPL_HELP = f"""\
+{BOLD}BOB Dev interactive shell{RESET}
+  /task <ID> [--path P]   Run the fetch → prompt → Claude Code workflow for a task.
+  /agent [GROK|OPENAI]    Show or switch the LLM backend for this session.
+  /path [P]               Show or set the target project path for this session.
+  /configure              Re-run the setup wizard.
+  /reset                  Clear the chat history for this session.
+  /help                   Show this message.
+  /exit, /quit            Leave the shell.
+Anything else is sent as a chat message to the configured AI backend.
+"""
+
+
+def _run_repl(agent: str, path: str) -> None:
+    """Interactive shell: chat with the configured AI, or run task workflows on demand."""
+
+    session_agent = agent
+    session_path  = path
+    history: list[dict] = [{
+        "role": "system",
+        "content": (
+            "You are BOB, a helpful assistant embedded in a developer's terminal. "
+            "You may be asked general questions or asked to reason about a software task. "
+            "Be concise and practical."
+        ),
+    }]
+
+    print_step("[BOB]", f"Interactive mode — backend: {session_agent} ({llm_model(session_agent)})")
+    print_info("Type /help for commands, or just start chatting.")
+    print()
+
+    while True:
+        try:
+            line = input(f"{BOLD}bob-dev›{RESET} ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+
+        if not line:
+            continue
+
+        if line in ("/exit", "/quit"):
+            break
+
+        if line == "/help":
+            print(REPL_HELP)
+            continue
+
+        if line == "/reset":
+            history = history[:1]
+            print_success("Chat history cleared.")
+            continue
+
+        if line == "/configure":
+            _run_configure()
+            continue
+
+        if line.startswith("/agent"):
+            parts = line.split(maxsplit=1)
+            if len(parts) == 1:
+                print_info(f"Current backend: {session_agent} ({llm_model(session_agent)})")
+                continue
+            choice = parts[1].strip().upper()
+            if choice not in ("GROK", "OPENAI"):
+                print_error("Usage: /agent [GROK|OPENAI]")
+                continue
+            if choice == "GROK" and not GROK_API_KEY:
+                print_error("GROK API key is not configured. Run /configure.")
+                continue
+            if choice == "OPENAI" and not OPENAI_API_KEY:
+                print_error("OpenAI API key is not configured. Run /configure.")
+                continue
+            session_agent = choice
+            print_success(f"Backend switched to {session_agent} ({llm_model(session_agent)}).")
+            continue
+
+        if line.startswith("/path"):
+            parts = line.split(maxsplit=1)
+            if len(parts) == 1:
+                print_info(f"Current path: {Path(session_path).resolve()}")
+                continue
+            candidate = Path(parts[1].strip()).expanduser()
+            if not candidate.exists() or not candidate.is_dir():
+                print_error(f"Invalid project path: {candidate}")
+                continue
+            session_path = str(candidate)
+            print_success(f"Path set to {Path(session_path).resolve()}.")
+            continue
+
+        if line.startswith("/task"):
+            parts = line.split(maxsplit=1)
+            if len(parts) == 1 or not parts[1].strip():
+                print_error("Usage: /task <ID> [--path P]")
+                continue
+
+            task_args = parts[1].split()
+            task_id_raw = task_args[0]
+            task_path = session_path
+            if "--path" in task_args:
+                idx = task_args.index("--path")
+                if idx + 1 < len(task_args):
+                    task_path = task_args[idx + 1]
+
+            try:
+                _run_one_shot(task_id_raw, task_path, session_agent)
+            except SystemExit as exc:
+                if exc.code not in (0, None):
+                    print_error(f"Task workflow exited with code {exc.code}.")
+            print()
+            continue
+
+        if line.startswith("/"):
+            print_error(f"Unknown command: {line}. Type /help for a list of commands.")
+            continue
+
+        # ── Freeform chat with the configured AI backend ─────────────────────
+        if session_agent == "GROK" and not GROK_API_KEY:
+            print_error("GROK API key is not configured. Run /configure.")
+            continue
+        if session_agent == "OPENAI" and not OPENAI_API_KEY:
+            print_error("OpenAI API key is not configured. Run /configure.")
+            continue
+
+        history.append({"role": "user", "content": line})
+        try:
+            reply = asyncio.run(run_with_spinner(
+                chat_completion,
+                history, session_agent, GROK_API_KEY, OPENAI_API_KEY,
+                label="Thinking",
+            ))
+        except Exception as exc:  # noqa: BLE001 - surface any backend error to the user
+            print_error(f"Chat request failed: {exc}")
+            history.pop()
+            continue
+
+        history.append({"role": "assistant", "content": reply})
+        print(f"{BOLD}bob{RESET}:")
+        print_markdown(reply)
+        print()
 
 
 # ---------------------------------------------------------------------------

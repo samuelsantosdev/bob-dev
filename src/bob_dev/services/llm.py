@@ -41,6 +41,30 @@ def llm_model(agent: str) -> str:
     return "grok-3" if agent == "GROK" else "gpt-4o"
 
 
+def chat_completion(
+    messages: list[dict],
+    agent: str,
+    grok_api_key: str,
+    openai_api_key: str,
+) -> str:
+    """Send *messages* (OpenAI chat format) to the configured backend and return the reply.
+
+    Used by the interactive REPL for freeform conversation with the AI
+    backend selected in settings (GROK or OPENAI), independent of the
+    Jira/GitLab task workflow.
+    """
+    client = build_llm_client(agent, grok_api_key, openai_api_key)
+    model  = llm_model(agent)
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=0.4,
+    )
+
+    return response.choices[0].message.content or ""
+
+
 def prompt_claude_code(
     acceptance_criteria: str,
     md_context: str,
